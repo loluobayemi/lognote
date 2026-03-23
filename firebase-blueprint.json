@@ -1,0 +1,54 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user in the system (student, supervisor, or admin).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique identifier for the user (Firebase Auth UID)." },
+        "name": { "type": "string", "description": "The full name of the user." },
+        "email": { "type": "string", "description": "The email address of the user." },
+        "role": { "type": "string", "enum": ["student", "supervisor", "admin"], "description": "The role of the user." },
+        "avatar": { "type": "string", "description": "The URL of the user's avatar image." },
+        "department": { "type": "string", "description": "The academic department of the user (optional)." },
+        "regNumber": { "type": "string", "description": "The registration number for students (optional)." },
+        "supervisorId": { "type": "string", "description": "The ID of the assigned supervisor for students (optional)." }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "LogEntry": {
+      "title": "LogEntry",
+      "description": "Represents a log entry created by a student.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique identifier for the log entry." },
+        "studentId": { "type": "string", "description": "The ID of the student who created the log." },
+        "studentName": { "type": "string", "description": "The name of the student who created the log." },
+        "supervisorId": { "type": "string", "description": "The ID of the supervisor assigned to this log." },
+        "title": { "type": "string", "description": "The title of the log entry." },
+        "date": { "type": "string", "description": "The date of the session (ISO 8601)." },
+        "duration": { "type": "string", "description": "The duration of the session." },
+        "status": { "type": "string", "enum": ["Approved", "Pending", "Rejected", "Draft"], "description": "The current status of the log." },
+        "observations": { "type": "string", "description": "The observation notes for the session." },
+        "challenges": { "type": "string", "description": "The challenges encountered during the session." },
+        "category": { "type": "string", "description": "The category of the log entry." },
+        "location": { "type": "string", "description": "The location where the session took place." },
+        "images": { "type": "array", "items": { "type": "string" }, "description": "A list of URLs for visual documentation." },
+        "feedback": { "type": "string", "description": "The feedback provided by the supervisor (optional)." },
+        "isGradeable": { "type": "boolean", "description": "Whether this entry contributes to the final grade (optional)." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "The timestamp when the log was created." }
+      },
+      "required": ["id", "studentId", "studentName", "supervisorId", "title", "date", "status", "observations", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user profiles."
+    },
+    "/logs/{logId}": {
+      "schema": "LogEntry",
+      "description": "Collection of student log entries."
+    }
+  }
+}

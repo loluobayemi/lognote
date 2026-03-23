@@ -1,0 +1,169 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (Firebase Auth UID)
+    // Fields:
+    //   - id: string (required) - The unique identifier for the user.
+    //   - name: string (required) - The full name of the user.
+    //   - email: string (required) - The email address of the user.
+    //   - role: string (required, enum: ['student', 'supervisor', 'admin']) - The role of the user.
+    //   - avatar: string (optional) - The URL of the user's avatar image.
+    //   - department: string (optional) - The academic department.
+    //   - regNumber: string (optional) - The registration number for students.
+    //   - supervisorId: string (optional) - The ID of the assigned supervisor for students.
+    //
+    // Collection: logs
+    // Document ID: logId
+    // Fields:
+    //   - id: string (required) - The unique identifier for the log entry.
+    //   - studentId: string (required) - The ID of the student who created the log.
+    //   - studentName: string (required) - The name of the student.
+    //   - supervisorId: string (required) - The ID of the supervisor assigned.
+    //   - title: string (required) - The title of the log entry.
+    //   - date: string (required, ISO 8601) - The date of the session.
+    //   - duration: string (optional) - The duration of the session.
+    //   - status: string (required, enum: ['Approved', 'Pending', 'Rejected', 'Draft']) - The current status.
+    //   - observations: string (required) - The observation notes.
+    //   - challenges: string (optional) - The challenges encountered.
+    //   - category: string (optional) - The category of the log.
+    //   - location: string (optional) - The location.
+    //   - images: list (optional) - A list of URLs for visual documentation.
+    //   - feedback: string (optional) - The feedback provided by the supervisor.
+    //   - isGradeable: bool (optional) - Whether this entry contributes to the final grade.
+    //   - createdAt: timestamp (required) - The timestamp when the log was created.
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isAuthenticated() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerified() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "loluobayemi@gmail.com"));
+    }
+
+    function isSupervisor() {
+      return isVerified() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'supervisor';
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'role']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.role in ['student', 'supervisor', 'admin'] &&
+             (!('avatar' in data) || isValidUrl(data.avatar)) &&
+             (!('department' in data) || (data.department is string && data.department.size() < 100)) &&
+             (!('regNumber' in data) || (data.regNumber is string && data.regNumber.size() < 50)) &&
+             (!('supervisorId' in data) || (data.supervisorId is string));
+    }
+
+    function isValidLog(data) {
+      return data.keys().hasAll(['id', 'studentId', 'studentName', 'supervisorId', 'title', 'date', 'status', 'observations', 'createdAt']) &&
+             data.id is string && data.studentId is string &&
+             data.studentName is string && data.studentName.size() > 0 && data.studentName.size() < 100 &&
+             data.supervisorId is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             isValidDateString(data.date) &&
+             data.status in ['Approved', 'Pending', 'Rejected', 'Draft'] &&
+             data.observations is string && data.observations.size() > 0 && data.observations.size() < 5000 &&
+             data.createdAt is timestamp &&
+             (!('duration' in data) || (data.duration is string && data.duration.size() < 50)) &&
+             (!('challenges' in data) || (data.challenges is string && data.challenges.size() < 5000)) &&
+             (!('category' in data) || (data.category is string && data.category.size() < 100)) &&
+             (!('location' in data) || (data.location is string && data.location.size() < 200)) &&
+             (!('images' in data) || (data.images is list && data.images.size() <= 10)) &&
+             (!('feedback' in data) || (data.feedback is string && data.feedback.size() < 5000)) &&
+             (!('isGradeable' in data) || (data.isGradeable is bool));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin() || isSupervisor();
+      allow create: if isOwner(userId) && 
+                    isValidUser(request.resource.data) && 
+                    request.resource.data.role != 'admin' &&
+                    hasOnlyAllowedFields(['id', 'name', 'email', 'role', 'avatar', 'department', 'regNumber', 'supervisorId']);
+      allow update: if (
+        isOwner(userId) && 
+        isVerified() &&
+        isValidUser(request.resource.data) && 
+        request.resource.data.role == resource.data.role &&
+        hasOnlyAllowedFields(['id', 'name', 'email', 'role', 'avatar', 'department', 'regNumber', 'supervisorId']) &&
+        areImmutableFieldsUnchanged(['id', 'email', 'role'])
+      ) || isAdmin();
+    }
+
+    match /logs/{logId} {
+      allow read: if isVerified() && (
+        request.auth.uid == resource.data.studentId || 
+        request.auth.uid == resource.data.supervisorId || 
+        isAdmin()
+      );
+      allow create: if isVerified() && 
+                    request.auth.uid == request.resource.data.studentId && 
+                    isValidLog(request.resource.data) &&
+                    hasOnlyAllowedFields(['id', 'studentId', 'studentName', 'supervisorId', 'title', 'date', 'duration', 'status', 'observations', 'challenges', 'category', 'location', 'images', 'createdAt']);
+      allow update: if isVerified() && (
+        // Student can update their own log if it's draft or rejected
+        (request.auth.uid == resource.data.studentId && 
+         (resource.data.status == 'Draft' || resource.data.status == 'Rejected') && 
+         isValidLog(request.resource.data) && 
+         request.resource.data.studentId == resource.data.studentId &&
+         areImmutableFieldsUnchanged(['id', 'studentId', 'createdAt']) &&
+         hasOnlyAllowedFields(['id', 'studentId', 'studentName', 'supervisorId', 'title', 'date', 'duration', 'status', 'observations', 'challenges', 'category', 'location', 'images', 'createdAt'])) ||
+        // Supervisor can update status, feedback, and isGradeable
+        (request.auth.uid == resource.data.supervisorId && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'feedback', 'isGradeable']) &&
+         request.resource.data.status in ['Approved', 'Pending', 'Rejected']) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+  }
+}
